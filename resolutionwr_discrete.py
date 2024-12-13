@@ -34,19 +34,34 @@ import psychopy
 
 import template as template
 
+from psychopy import visual
 from psychopy_visionscience.radial import RadialStim
+from psychopy.tools.monitorunittools import pix2deg
 
 # Things you probably want to change
-set_sizes = [1, 2, 4, 6]
-trials_per_set_size = 5  # per block
-number_of_blocks = 2
+set_sizes = [2]
+trials_per_set_size = 2  # per block
+number_of_blocks = 1
 
 iti_time = 1
+cue_time = 2
 sample_time = 2
 delay_time = 1
-monitor_distance = 90
+monitor_distance = 120
 
-experiment_name = 'ResolutionWR'
+colors = {
+    "Cyan": (-1, 1, 1),
+    "Red": (1, -1, -1),
+    "Green": (-1, 1, -1),
+    "Orange": (1, 0, -1),
+    "Black": (-1, -1, -1),
+    "White": (1, 1, 1),
+    "Yellow": (1, 1, -1),
+    "Blue": (-1, -1, 1),
+    "Magenta": (1, -1, 1),
+}
+
+experiment_name = 'ResolutionWR_Discrete'
 
 data_directory = os.path.join(
     os.path.expanduser('~'), 'Desktop', experiment_name, 'Data')
@@ -66,11 +81,7 @@ instruct_text = [
 ]
 
 # Things you probably don't need to change, but can if you want to
-colorwheel_path = 'colors.json'
-
-distance_from_fixation = 6  # visual degrees
-stim_size = 1.5  # visual degrees
-min_color_dist = 25  # should be > 360 / max(set_sizes)
+stim_size = 1.2/3  # visual degrees
 
 data_fields = [
     'Subject',
@@ -79,6 +90,11 @@ data_fields = [
     'Trial',
     'LocationNumber',
     'ClickNumber',
+    'TS_ITI',
+    'TS_Cue',
+    'TS_Stim',
+    'TS_Delay',
+    'TS_Resp',
     'Timestamp',
     'SetSize',
     'LocationX',
@@ -86,7 +102,10 @@ data_fields = [
     'ColorIndex',
     'TrueColor',
     'RespColor',
-    'Error',
+    'InCuedSet',
+    'TrueColorName',
+    'RespColorName',
+    'Accuracy',
     'RT',
 ]
 
@@ -131,8 +150,6 @@ class ResolutionWR(template.BaseExperiment):
     The class that runs the whole report estimation experiment.
 
     Parameters:
-    colorwheel_path -- A string or Path describing the location of a json file containing
-        a 360 length array of length 3 rgb arrays.
     data_directory -- Where the data should be saved.
     delay_time -- The number of seconds between the stimuli display and test.
     distance_from_fixation -- A number describing how far from fixation stimuli will
@@ -155,8 +172,6 @@ class ResolutionWR(template.BaseExperiment):
     display_blank -- Displays a blank screen.
     display_break -- Displays a screen during the break between blocks.
     display_stimuli -- Displays the stimuli.
-    draw_color_wheels -- Draws color wheels at stimuli locations with random rotation.
-    generate_color_indexes -- Generates colors for a trial given the minimum distance.
     get_response -- Manages getting responses for all color wheels.
     make_block -- Creates a list of trials to be run.
     make_trial -- Creates a single trial dictionary.
@@ -165,8 +180,7 @@ class ResolutionWR(template.BaseExperiment):
     send_data -- Updates the experiment data with the information from the last trial.
     """
     def __init__(self, set_sizes=set_sizes, trials_per_set_size=trials_per_set_size,
-                 number_of_blocks=number_of_blocks, distance_from_fixation=distance_from_fixation,
-                 min_color_dist=min_color_dist, colorwheel_path=colorwheel_path, stim_size=stim_size,
+                 number_of_blocks=number_of_blocks, stim_size=stim_size,
                  iti_time=iti_time, sample_time=sample_time, delay_time=delay_time,
                  data_directory=data_directory, questionaire_dict=questionaire_dict,
                  instruct_text=instruct_text, **kwargs):
@@ -175,20 +189,17 @@ class ResolutionWR(template.BaseExperiment):
         self.trials_per_set_size = trials_per_set_size
         self.number_of_blocks = number_of_blocks
 
-        self.distance_from_fixation = distance_from_fixation
         self.stim_size = stim_size
 
         self.questionaire_dict = questionaire_dict
         self.data_directory = data_directory
         self.instruct_text = instruct_text
 
-        self.min_color_dist = min_color_dist
-
         self.iti_time = iti_time
+        self.cue_time = cue_time
         self.sample_time = sample_time
         self.delay_time = delay_time
 
-        self.color_wheel = self._load_color_wheel(colorwheel_path)
         self.mouse = None
 
         super().__init__(**kwargs)
@@ -279,96 +290,65 @@ class ResolutionWR(template.BaseExperiment):
                 raise
 
         os.chdir(self.data_directory)
-
-    def _load_color_wheel(self, path):
-        """
-        Loads the json color wheel file.
-
-        Parameters:
-            path -- Str or Path of the json file.
-        """
-        with open(path) as f:
-            color_wheel = json.load(f)
-
-        color_wheel = [template.convert_color_value(i) for i in color_wheel]
-
-        return np.array(color_wheel)
-
+            
+            
     def calculate_locations(self, set_size):
         """
-        Calculates locations for the upcoming trial with random jitter.
+        Generate random screen locations with specified constraints.
 
         Parameters:
-            set_size -- The number of locations to return.
+        - set_size: Number of locations to generate on each side
+
+        Returns:
+        - List of (x, y) coordinate tuples for locations
         """
-        angle_dist = 360 / set_size
-        rotation = random.randint(0, angle_dist - 1)
-        angles = [int(i * angle_dist + rotation + random.randint(-5, 5)) for i in range(set_size)]
+        min_distance = self.stim_size * 4.5
+        regions = [(-7, 0-min_distance/2), (0+min_distance/2, 7)]
+        region_locations = [[], []]  # List to store locations for each region
 
-        locations = [(self.distance_from_fixation * math.cos(math.radians(i)),
-                      self.distance_from_fixation * math.sin(math.radians(i)))
-                     for i in angles]
+        for region_index, region in enumerate(regions): 
+            region_locations[region_index] = []  # Initialize the current region's locations list 
+            attempts = 0
+            max_attempts = 1000
 
-        print(locations)
-        print('break it up')
-        return locations
+            while len(region_locations[region_index]) < set_size: 
+                attempts += 1
+                if attempts > max_attempts:
+                    raise ValueError(f"Could not find valid positions for all stimuli in region {region_index} after {max_attempts} attempts.")
 
-    def _check_dist(self, attempt, colors):
-        """
-        Checks if a color attempt statistfies the distance condition.
+                x = np.random.uniform(region[0], region[1])
+                y = np.random.uniform(-5.2, 5.2)
 
-        Parameters:
-            attempt -- The color index to be checked.
-            colors -- The list of color indexes to be checked against.
-        """
-        for c in colors:
-            raw_dist = abs(c - attempt)
-            dist = min(raw_dist, 360 - raw_dist)
+                valid = True
+                for existing_loc in region_locations[region_index]: 
+                    if np.sqrt((x - existing_loc[0])**2 + (y - existing_loc[1])**2) < min_distance:
+                        valid = False
+                        break
 
-            if dist < self.min_color_dist:
-                return False
+                if valid:
+                    region_locations[region_index].append((x, y))
 
-        return True
+        return region_locations
 
-    def generate_color_indexes(self, set_size):
-        """
-        Generates colors for a trial given the minimum distance.
+    def make_trial(self, set_size, colors):
+        """Creates a single trial dictionary."""
 
-        Parameters:
-            set_size -- The number of colors to generate.
-        """
-        colors = []
+        color_values_left = {name: colors[name] for name in random.sample(list(colors), set_size)}
+        color_values_right = {name: colors[name] for name in random.sample(list(colors), set_size)}
 
-        while len(colors) < set_size:
-            attempt = random.randint(0, 359)
-            if self._check_dist(attempt, colors):
-                colors.append(attempt)
-
-        return colors
-
-    def make_trial(self, set_size):
-        """
-        Creates a single trial dictionary.
-
-        Parameters:
-            set_size -- The number of items to be displayed.
-        """
-        color_indexes = self.generate_color_indexes(set_size)
-        color_values = [self.color_wheel[i] for i in color_indexes]
-        wheel_rotations = [random.randint(0, 359) for _ in range(set_size)]
         locations = self.calculate_locations(set_size)
+
+        color_values = [list(color_values_left.values()), list(color_values_right.values())] #Create the list of lists
 
         trial = {
             'set_size': set_size,
-            'color_indexes': color_indexes,
-            'color_values': color_values,
-            'wheel_rotations': wheel_rotations,
+            'color_values': color_values, #Use the new list of lists
             'locations': locations
         }
 
         return trial
 
-    def make_block(self):
+    def make_block(self, colors):
         """Makes a block of trials.
 
         Returns a shuffled list of trials created by self.make_trial.
@@ -378,12 +358,13 @@ class ResolutionWR(template.BaseExperiment):
 
         for set_size in self.set_sizes:
             for _ in range(self.trials_per_set_size):
-                trial = self.make_trial(set_size)
+                trial = self.make_trial(set_size, colors)
                 trial_list.append(trial)
 
         random.shuffle(trial_list)
 
         return trial_list
+        
 
     def display_blank(self, wait_time):
         """
@@ -392,47 +373,129 @@ class ResolutionWR(template.BaseExperiment):
         Parameters:
             wait_time -- The number of seconds to display the blank for.
         """
-        self.experiment_window.flip()
+        # Display fixation
+        fixation = visual.Circle(self.experiment_window, radius=0.06, fillColor='black')
+        
+        fixation.draw()
+        ts = self.experiment_window.flip()
 
         psychopy.core.wait(wait_time)
+        
+        return ts
+        
+        
+    def display_cue(self, cue_time):
+        
+        # Display fixation
+        fixation = visual.Circle(self.experiment_window, radius=0.06, fillColor='black')
+        
+        # Display cue
+        cue_dir = random.choice([-1, 1])  # Choose left (-1) or right (+1) randomly
+        
+        tsz = 0.2
+        tshft = 0.4
+        
+        arrow_purple = (0.5, 0, 0.5) #(0.6667, 0.3922, 0.6667) 
+        arrow_green = (0, 0.5, 0) #(0.6667, 0.3922, 0.6667)
+        
+        if cue_dir == -1:
+            leftColor = arrow_green
+            rightColor = arrow_purple
+        elif cue_dir == 1:
+            rightColor = arrow_green
+            leftColor = arrow_purple
+        
+        # Create two triangles
+        triangle_left = visual.ShapeStim(
+            win=self.experiment_window, 
+            vertices=((0, tsz+tshft), (0, -tsz+tshft), (-2*tsz, tshft)),
+            lineWidth=1.0, 
+            closeShape=True,
+            fillColor=leftColor,
+            pos=(0, 0) 
+        )
+
+        triangle_right = visual.ShapeStim(
+            win=self.experiment_window, 
+            vertices=((0, tsz+tshft), (0, -tsz+tshft), (2*tsz, tshft)),
+            lineWidth=1.0, 
+            closeShape=True,
+            fillColor=rightColor,
+            pos=(0, 0) 
+        )
+
+        # Draw the shapes
+        fixation.draw()
+        triangle_left.draw()
+        triangle_right.draw()
+        
+        ts = self.experiment_window.flip()
+        psychopy.core.wait(cue_time)  # Display cue for 500 ms
+        
+        return cue_dir, ts
+    
 
     def display_stimuli(self, coordinates, colors):
-        """
-        Displays the stimuli.
+        """Displays the stimuli.
 
         Parameters:
-            coordinates -- A list of (x, y) tuples in visual degrees.
-            colors -- A list of -1 to 1 rgb color lists
+            coordinates -- A list of lists of (x, y) tuples in visual degrees.
+            colors -- A list of lists of -1 to 1 rgb color lists.
         """
-
-        for pos, color in zip(coordinates, colors):
-            psychopy.visual.Circle(
-                self.experiment_window, radius=self.stim_size, pos=pos, fillColor=color,
-                units='deg', lineColor=None).draw()
-
-        self.experiment_window.flip()
-
+        
+        for region_coords, region_colors in zip(coordinates, colors): #Iterate through the regions
+            for pos, color in zip(region_coords, region_colors): #Iterate through the coords and colors of each region
+                psychopy.visual.Rect(
+                    self.experiment_window, width=self.stim_size*3, height=self.stim_size*3, pos=pos, fillColor=color,
+                    units='deg', lineColor=None).draw()
+                    
+        # Display fixation
+        fixation = visual.Circle(self.experiment_window, radius=0.06, fillColor='black')
+        fixation.draw()
+        
+        ts = self.experiment_window.flip()
         psychopy.core.wait(self.sample_time)
+        
+        return ts
 
-    def draw_color_wheels(self, coordinates, wheel_rotations):
+
+    def draw_color_grid(self, coordinates, colors):
         """
-        Draws color wheels at stimuli locations with random rotation.
+        Draws a 3x3 grid of predefined color patches at stimuli locations,
+        with the center square left empty.
 
         Parameters:
-            coordinates -- A list of (x, y) tuples
-            wheel_rotations -- A list of 0:359 ints describing how much each wheel
-                should be rotated.
+            coordinates -- A list of (x, y) tuples, where each tuple represents a location on the screen
         """
-        mask = np.zeros([100, 1])
-        mask[-30:] = 1
+        
+        # Coordinates for the grid arrangement
+        grid_positions = [
+            (-1, 1), (0, 1), (1, 1),
+            (-1, 0), (0, 0), (1, 0),
+            (-1, -1), (0, -1), (1, -1)
+        ]
+        
+        color_values = list(colors.values())
+        
+        for region_coords in coordinates:
+            for pos in region_coords:
+                # Place each of the 8 colors in a 3x3 grid, leaving the center empty
+                color_index = 0  # Start with the first color
+                for i, (dx, dy) in enumerate(grid_positions):
 
-        for pos, rot in zip(coordinates, wheel_rotations):
-            rotated_wheel = np.roll(self.color_wheel, rot, axis=0)
-            tex = np.repeat(rotated_wheel[np.newaxis, :, :], 360, 0)
+                    color_patch = visual.Rect(
+                        self.experiment_window, 
+                        width=self.stim_size, 
+                        height=self.stim_size, 
+                        fillColor=color_values[color_index], 
+                        lineColor=None, 
+                        pos=(pos[0] + dx * self.stim_size, pos[1] + dy * self.stim_size)
+                    )
+                    color_patch.draw()
 
-            RadialStim(
-                self.experiment_window, tex=tex, mask=mask, pos=pos, angularRes=256,
-                angularCycles=1, interpolate=False, size=self.stim_size * 2).draw()
+                    color_index += 1  # Increment the color index
+
+
 
     def _calc_mouse_color(self, mouse_pos):
         """
@@ -465,7 +528,7 @@ class ResolutionWR(template.BaseExperiment):
             coordinates -- A list of (x, y) tuples
             mouse_pos -- A position returned by mouse.getPos()
         """
-        dists = [np.linalg.norm(np.array(i) - np.array(mouse_pos) / 2) for i in coordinates]
+        dists = [np.linalg.norm(np.array(i) - np.array(mouse_pos)) for i in coordinates]
         closest_dist = min(dists)
 
         if closest_dist < 4:
@@ -473,65 +536,81 @@ class ResolutionWR(template.BaseExperiment):
         else:
             return None
 
-    def _response_loop(self, coordinates, wheel_rotations):
+    def _response_loop(self, coordinates, cue_dir):
         """
-        Handles the hover updating and response clicks
-
-        Slightly slow due to how psychopy handles clicks, so a full click and hold is needed.
+        Handles the hover updating and response clicks for coordinates as a list of lists.
 
         Parameters:
-            coordinates -- A list of (x, y) tuples
-            wheel_rotations -- A list of 0:359 ints describing how much each wheel
-                should be rotated.
+            coordinates -- A list of lists of (x, y) tuples
         """
-        temp_coordinates = copy.copy(coordinates)
-        temp_rotations = copy.copy(wheel_rotations)
+        # Flatten coordinates for processing
+        flat_coordinates = [coord for region in coordinates for coord in region]
+        
+        region_map = {0: [], 1: []}
 
-        resp_colors = [0] * len(coordinates)
-        rts = [0] * len(coordinates)
-        click_order = [0] * len(coordinates)
+        for i, coord in enumerate(flat_coordinates):
+            region_map[0 if coord[0] < 0 else 1].append(coord)
+        
+        # Display fixation
+        fixation = visual.Circle(self.experiment_window, radius=0.06, fillColor='black')
+
+        
+        # Track selected positions instead of removing from list
+        selected_positions = set()
+
+        resp_colors = [0] * len(flat_coordinates)
+        rts = [0] * len(flat_coordinates)
+        click_order = [0] * len(flat_coordinates)
 
         click = 1
 
         self.mouse.clickReset()
 
-        self.draw_color_wheels(temp_coordinates, temp_rotations)
-        self.experiment_window.flip()
+        self.draw_color_grid(coordinates, colors)
+        ts = self.experiment_window.flip()
+        
+        cue_side_positions = region_map[0 if cue_dir == -1 else 1]
 
         while True:
             if psychopy.event.getKeys(keyList=['q']):
                 self.quit_experiment()
 
             (lclick, _, _), (rt, _, _) = self.mouse.getPressed(getTime=True)
+            
+            if lclick:
+                mouse_pos = self.mouse.getPos()
+                px_color = self._calc_mouse_color(mouse_pos)
 
-            mouse_pos = self.mouse.getPos()
-            px_color = self._calc_mouse_color(mouse_pos)
+                if px_color is not None and not np.array_equal(px_color, np.array([127, 127, 127])):
+                    preview_pos = self._calc_mouse_position(flat_coordinates, mouse_pos)
 
-            if px_color is not None and not np.array_equal(px_color, np.array([128, 128, 128])):
-                preview_pos = self._calc_mouse_position(temp_coordinates, mouse_pos)
-
-                if preview_pos:
-                    if lclick:
-                        resp_colors[coordinates.index(preview_pos)] = px_color
-                        rts[coordinates.index(preview_pos)] = rt
-                        click_order[coordinates.index(preview_pos)] = click
+                    if preview_pos and preview_pos not in selected_positions:
+                        pos_index = flat_coordinates.index(preview_pos)
+                        resp_colors[pos_index] = px_color
+                        rts[pos_index] = rt
+                        click_order[pos_index] = click
                         click += 1
+                        selected_positions.add(preview_pos)
 
-                        del temp_rotations[temp_coordinates.index(preview_pos)]
-                        temp_coordinates.remove(preview_pos)
+                    # Check if all cues on cue_dir are completed
+                    if all(pos in selected_positions for pos in cue_side_positions):
+                        return resp_colors, rts, click_order, ts
 
-                        if not temp_coordinates:
-                            return resp_colors, rts, click_order
-                    else:
-                        psychopy.visual.Circle(
-                            self.experiment_window, radius=self.stim_size / 2, pos=preview_pos,
-                            fillColor=template.convert_color_value(px_color), units='deg',
-                            lineColor=None).draw()
+                    #if len(selected_positions) == len(flat_coordinates):
+                        #return resp_colors, rts, click_order
 
-            self.draw_color_wheels(temp_coordinates, temp_rotations)
+
+            temp_coordinates = [
+                [pos for pos in region if pos not in selected_positions] 
+                for region in coordinates
+            ]
+            
+            self.draw_color_grid(temp_coordinates, colors)
+            fixation.draw()
             self.experiment_window.flip()
+            
 
-    def get_response(self, coordinates, wheel_rotations):
+    def get_response(self, coordinates, cue_dir):
         """
         Manages getting responses for all color wheels.
 
@@ -539,41 +618,20 @@ class ResolutionWR(template.BaseExperiment):
             coordinates -- A list of (x, y) tuples
             wheel_rotations -- A list of 0:359 ints describing how much each wheel
                 should be rotated.
+                
         """
+        
         if not self.mouse:
             self.mouse = psychopy.event.Mouse(visible=False, win=self.experiment_window)
 
         self.mouse.setVisible(1)
         psychopy.event.clearEvents()
 
-        resp_colors, rts, click_order = self._response_loop(coordinates, wheel_rotations)
+        resp_colors, rts, click_order,  ts = self._response_loop(coordinates, cue_dir)
 
         self.mouse.setVisible(0)
 
-        return resp_colors, rts, click_order
-
-    def calculate_error(self, color_index, resp_color):
-        """
-        Calculates error in a response compared to the true color value.
-
-        Parameters:
-            color_index -- The index of the true color values (0:359).
-            resp_color -- The rgb color that was selected.
-        """
-        row_index = np.where((self.color_wheel == resp_color).all(axis=1))[0]
-
-        if row_index.shape[0] < 1:
-            return None  # if empty, return None
-
-        raw_error = row_index[0] - color_index
-        if raw_error >= -180 and raw_error <= 180:
-            error = raw_error
-        elif raw_error < -180:
-            error = 360 + raw_error
-        else:
-            error = raw_error - 360
-
-        return error
+        return resp_colors, rts, click_order, ts
 
     def send_data(self, data):
         """Updates the experiment data with the information from the last trial.
@@ -585,7 +643,7 @@ class ResolutionWR(template.BaseExperiment):
             data -- A dict where keys exist in data_fields and values are to be saved.
         """
         self.update_experiment_data(data)
-
+        
     def run_trial(self, trial, block_num, trial_num):
         """
         Runs a single trial.
@@ -595,34 +653,73 @@ class ResolutionWR(template.BaseExperiment):
             block_num -- The block number to be saved in the output csv.
             trial_num -- The trial number to be saved in the output csv.
         """
-        self.display_blank(self.iti_time)
-        self.display_stimuli(trial['locations'], trial['color_values'])
-        self.display_blank(self.delay_time)
-        resp_colors, rts, click_order = self.get_response(trial['locations'], trial['wheel_rotations'])
+        ts_iti = self.display_blank(self.iti_time)
+        cue_dir, ts_cue = self.display_cue(self.cue_time)
+        ts_stim = self.display_stimuli(trial['locations'], trial['color_values'])
+        ts_delay = self.display_blank(self.delay_time)
+        resp_colors, rts, click_order, ts_resp = self.get_response(trial['locations'], cue_dir)
 
         data = []
         timestamp = psychopy.core.getAbsTime()
 
-        for i, (color, rt, click) in enumerate(zip(resp_colors, rts, click_order)):
+        # Flatten locations and color values for iteration
+        all_locations = [loc for region in trial['locations'] for loc in region]
+        all_colors = [color for region in trial['color_values'] for color in region]
+        color_names = list(colors.keys())
+        
+        for i, (pos, true_color) in enumerate(zip(all_locations, all_colors)):
+            thisRespColor = resp_colors[i]
+            if not np.array_equal(thisRespColor, 0):
+                thisRespColor = tuple(template.convert_color_value(thisRespColor))
+                
+                # Find the response color name
+                resp_color_name = next(
+                    (name for name, color in colors.items() if color == thisRespColor), "Unknown"
+                )
+                
+                accuracy = int(true_color == thisRespColor)
+                
+            else:  # No response, which occurs if all items in cued set were answered
+                thisRespColor = (float('nan'), float('nan'), float('nan'))
+                resp_color_name = 'none'
+                rts[i] = float('nan')
+                accuracy = float('nan')
+                click_order[i] = float('nan')
+                
+            in_cued_set = (cue_dir == -1 and pos[0] < 0) or (cue_dir == 1 and pos[0] > 0)
+            
+            # Determine which region the location belongs to
+            region_index = 0 if pos[0] < 0 else 1
+            
             data.append({
                 'Subject': self.experiment_info['Subject Number'],
                 'Session': self.experiment_info['Session'],
-                'Block': block_num,
-                'Trial': trial_num,
+                'Block': block_num+1, # the +1 makes it 1 indexed in the record
+                'Trial': trial_num+1, # the +1 makes it 1 indexed in the record
                 'LocationNumber': i + 1,
-                'ClickNumber': click,
+                'ClickNumber': click_order[i],
+                'TS_ITI': ts_iti,
+                'TS_Cue': ts_cue,
+                'TS_Stim': ts_stim,
+                'TS_Delay': ts_delay,
+                'TS_Resp': ts_resp,
                 'Timestamp': timestamp,
                 'SetSize': trial['set_size'],
-                'LocationX': trial['locations'][i][0],
-                'LocationY': trial['locations'][i][1],
-                'ColorIndex': trial['color_indexes'][i],
-                'TrueColor': trial['color_values'][i],
-                'RespColor': template.convert_color_value(color),
-                'Error': self.calculate_error(trial['color_indexes'][i], template.convert_color_value(color)),
-                'RT': rt,
+                'LocationX': pos[0],
+                'LocationY': pos[1],
+                'ColorIndex': color_names.index(list(colors.keys())[list(colors.values()).index(true_color)]),
+                'TrueColor': true_color,
+                'InCuedSet': in_cued_set,
+                'TrueColorName': list(colors.keys())[list(colors.values()).index(true_color)],
+                'RespColor': thisRespColor,
+                'RespColorName': resp_color_name,
+                'Accuracy': accuracy,
+                'RT': rts[i],
             })
 
         return data
+        
+
 
     def display_break(self):
         """Displays a break screen in between blocks."""
@@ -666,7 +763,7 @@ class ResolutionWR(template.BaseExperiment):
 
         self.save_experiment_info()
         self.open_csv_data_file()
-        self.open_window(screen=0)
+        self.open_window(screen=1)
         self.display_text_screen('Loading...', wait_for_input=False)
 
         if setup_hook is not None:
@@ -679,7 +776,7 @@ class ResolutionWR(template.BaseExperiment):
             before_first_trial_hook(self)
 
         for block_num in range(self.number_of_blocks):
-            block = self.make_block()
+            block = self.make_block(colors)
 
             if pre_block_hook is not None:
                 tmp = pre_block_hook(self, block, block_num)
@@ -726,6 +823,7 @@ if __name__ == '__main__':
         experiment_name=experiment_name,
         data_fields=data_fields,
         monitor_distance=monitor_distance,
+        monitor_name = 'expmon'
         # Custom parameters go here
     )
 
