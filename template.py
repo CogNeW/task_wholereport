@@ -75,7 +75,7 @@ class BaseExperiment:
     """
 
     def __init__(self, experiment_name, data_fields, bg_color=[128, 128, 128],
-                 monitor_name='expmon', monitor_width=53,
+                 monitor_name='LG Monitor (Subject Monitor)', monitor_width=68.58,
                  monitor_distance=120, monitor_px=[2560, 1444], **kwargs):
         """Creates a new BaseExperiment object.
 
@@ -148,9 +148,7 @@ class BaseExperiment:
         """
 
         self.experiment_info = {'Subject Number': '0',
-                                'Age': '0',
-                                'Experimenter Initials': 'CQ',
-                                'Unique Subject Identifier': '000000'
+                                'Experimenter Lead Initials': 'CQ',
                                 }
 
         if additional_fields_dict is not None:
@@ -322,7 +320,7 @@ class BaseExperiment:
         """
         self.experiment_window = psychopy.visual.Window(
             monitor=self.experiment_monitor, fullscr=True, color=self.bg_color,
-            colorSpace='rgb', units='deg', allowGUI=False, **kwargs)
+            colorSpace='rgb', units='deg', allowGUI=False, checkTiming = False, **kwargs)
 
     def display_text_screen(
             self, text='', text_color=[0, 0, 0], text_height=36,

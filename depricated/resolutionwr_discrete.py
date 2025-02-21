@@ -34,11 +34,9 @@ import psychopy
 
 import template as template
 
-from psychopy import visual, parallel
+from psychopy import visual
 from psychopy_visionscience.radial import RadialStim
 from psychopy.tools.monitorunittools import pix2deg
-
-p_port = parallel.ParallelPort(address='0x2FF8')
 
 # Things you probably want to change
 set_sizes = [6]
@@ -50,7 +48,6 @@ cue_time = 1.1
 sample_time = .25
 delay_time = 1.3
 monitor_distance = 120
-pport_wait_time = .01
 
 colors = {
     "Cyan": (-1, 1, 1),
@@ -71,7 +68,16 @@ data_directory = os.path.join(
 
 instruct_text = [
     ('Welcome to the experiment. Press space to begin.'),
-    ('.'),
+    ('In this experiment you will be remembering colors.\n\n'
+     'Each trial will start with a blank screen.\n'
+     'Then, a number of circles with different colors will appear.\n'
+     'Remember as many colors as you can.\n\n'
+     'After a short delay, color wheels will appear.\n\n'
+     'Match the color wheel to the color that appeared in that position.\n'
+     'Click the mouse button until the wheel disappears.\n'
+     'If you are not sure, just take your best guess.\n\n'
+     'You will get breaks in between blocks.\n\n'
+     'Press space to start.'),
 ]
 
 # Things you probably don't need to change, but can if you want to
@@ -101,9 +107,6 @@ data_fields = [
     'RespColorName',
     'Accuracy',
     'RT',
-    'TMS',
-    'cueDir',
-    'tsTrialBegin',
 ]
 
 gender_options = [
@@ -131,6 +134,10 @@ race_options = [
 # Add additional questions here
 questionaire_dict = {
     'Session': 1,
+    'Age': 0,
+    'Gender': gender_options,
+    'Hispanic:': hispanic_options,
+    'Race': race_options,
 }
 
 # This is the logic that runs the experiment
@@ -140,20 +147,20 @@ psychopy.logging.console.setLevel(psychopy.logging.CRITICAL)  # Avoid error outp
 from psychopy import visual, core, event
 import socket
 
-server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-host = '127.0.0.1'  # The server's hostname or IP address
-port = 8000        # The port used by the server
+#server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+#host = '127.0.0.1'  # The server's hostname or IP address
+#port = 8000        # The port used by the server
 
-server_socket.bind((host, port))
+#server_socket.bind((host, port))
 
 # Listen for incoming connections (only one client expected)
-server_socket.listen(1)
-server_socket.settimeout(100)
-print("Waiting for a connection")
-client_socket, addr = server_socket.accept()  # This line will block until a client connects
-print("Connected by", addr)
+#server_socket.listen(1)
+#server_socket.settimeout(100)
+#print("Waiting for a connection")
+#client_socket, addr = server_socket.accept()  # This line will block until a client connects
+#print("Connected by", addr)
 
-client_socket.settimeout(0.66)
+#client_socket.settimeout(500)
 
 class ResolutionWR(template.BaseExperiment):
     """
@@ -213,14 +220,6 @@ class ResolutionWR(template.BaseExperiment):
         self.mouse = None
 
         super().__init__(**kwargs)
-        
-                # Create a window in windowed mode
-        self.win = visual.Window(
-            size=[800, 600],  # Set the window size
-            fullscr=False,    # Ensure it's in windowed mode
-            color=[0, 0, 0],  # Optional: background color (black)
-            units="pix"       # Optional: use pixels as the unit
-        )
 
     def save_experiment_info(self, filename=None):
         """Writes the info from the dialog box to a json file.
@@ -384,7 +383,7 @@ class ResolutionWR(template.BaseExperiment):
         return trial_list
         
 
-    def display_blank(self, wait_time, pport_code):
+    def display_blank(self, wait_time):
         """
         Displays a blank screen.
 
@@ -393,11 +392,6 @@ class ResolutionWR(template.BaseExperiment):
         """
         # Display fixation
         fixation = visual.Circle(self.experiment_window, radius=0.06, fillColor='black')
-        
-        # Send a parallel port trigger
-        p_port.setData(int(pport_code))
-        psychopy.core.wait(pport_wait_time)
-        p_port.setData(int(0))
         
         fixation.draw()
         ts = self.experiment_window.flip()
@@ -414,7 +408,7 @@ class ResolutionWR(template.BaseExperiment):
         
         # Display cue
         cue_dir = random.choice([-1, 1])  # Choose left (-1) or right (+1) randomly
-                
+        
         tsz = 0.2
         tshft = 0.4
         
@@ -424,12 +418,10 @@ class ResolutionWR(template.BaseExperiment):
         if cue_dir == -1:
             leftColor = arrow_green
             rightColor = arrow_purple
-            cue_dir_name = 'left'
         elif cue_dir == 1:
             rightColor = arrow_green
             leftColor = arrow_purple
-            cue_dir_name = 'right'
-            
+        
         # Create two triangles
         triangle_left = visual.ShapeStim(
             win=self.experiment_window, 
@@ -456,72 +448,42 @@ class ResolutionWR(template.BaseExperiment):
         
         ts = self.experiment_window.flip()
         
-        # Send a parallel port trigger
-        p_port.setData(int(2))
-        psychopy.core.wait(pport_wait_time)
-        p_port.setData(int(0))
-        
 #   Code used in Berger task to trigger closedloop and bookkeeping indicating when it happened
 #        time_elapsed = t
-
+#
 #        # Check and act upon the 500ms threshold
 #        if not flag_500ms_triggered and t >= 0.5:
 #            print("First message at 500ms")
 #            thisExp.addData('Flag500ms', str(t))
 #            flag_500ms_triggered = True  # Set the flag to prevent re-triggering
 #            client_socket.sendall(b'ready')
-
+#
 #        # Check and act upon the 1500ms threshold
-#       if not flag_1500ms_triggered and t >= 1.5:
+#        if not flag_1500ms_triggered and t >= 1.5:
 #            print("Second message at 1500ms")
 #            thisExp.addData('Flag1500ms', str(t))
 #            flag_1500ms_triggered = True  # Set the flag to prevent re-triggering
 #            client_socket.sendall(b'done')
 
-        psychopy.core.wait(.54)  # wait for 540 ms
-        
-        client_socket.sendall(b'ready') # will be open for 660ms
+#        client_socket.sendall(b'ready')
 
-        try:
-            data = client_socket.recv(1024)
-            print(data)
-            # Send a parallel port trigger
-            p_port.setData(int(3))
-            psychopy.core.wait(pport_wait_time)
-            p_port.setData(int(0))
-            psychopy.core.wait(1.15)
-            
-        except socket.timeout:
-            print("Cue stimulation timed out")
-            data = 'timeout'
-            
-            # Send a parallel port trigger
-            p_port.setData(int(4))
-            psychopy.core.wait(pport_wait_time)
-            p_port.setData(int(0))
-            
-        except BlockingIOError:
-            data = 'blockingIOError'
-            
-            # Send a parallel port trigger
-            p_port.setData(int(4))
-            psychopy.core.wait(pport_wait_time)
-            p_port.setData(int(0))
-            
-        except ConnectionResetError:
-            data = 'ConnectionResetError'
-            
-            # Send a parallel port trigger
-            p_port.setData(int(4))
-            psychopy.core.wait(pport_wait_time)
-            p_port.setData(int(0))
-            
-        finally:
-            print("data: " + str(data))
+#        try:
+#            data = client_socket.recv(1024)
+#        except socket.timeout:
+#            print("Cue stimulation timed out")
+#            data = None
+#        except BlockingIOError:
+#            data = None
+#        except ConnectionResetError:
+#            data = None
+#        finally:
+#            print("data: " + str(data))
 
-        client_socket.sendall(b'done')
+        psychopy.core.wait(cue_time)  # Display cue for 500 ms
 
-        return cue_dir, ts, data, cue_dir_name
+#        client_socket.sendall(b'done')
+
+        return cue_dir, ts
     
 
     def display_stimuli(self, coordinates, colors):
@@ -543,12 +505,6 @@ class ResolutionWR(template.BaseExperiment):
         fixation.draw()
         
         ts = self.experiment_window.flip()
-        
-        # Send a parallel port trigger
-        p_port.setData(int(5))
-        psychopy.core.wait(pport_wait_time)
-        p_port.setData(int(0))
-        
         psychopy.core.wait(self.sample_time)
         
         return ts
@@ -664,11 +620,6 @@ class ResolutionWR(template.BaseExperiment):
         self.draw_color_grid(coordinates, colors)
         ts = self.experiment_window.flip()
         
-        # Send a parallel port trigger
-        p_port.setData(int(7))
-        psychopy.core.wait(pport_wait_time)
-        p_port.setData(int(0))
-        
         cue_side_positions = region_map[0 if cue_dir == -1 else 1]
 
         while True:
@@ -753,12 +704,10 @@ class ResolutionWR(template.BaseExperiment):
             block_num -- The block number to be saved in the output csv.
             trial_num -- The trial number to be saved in the output csv.
         """
-        
-        timestamp_trialBegin = psychopy.core.getAbsTime()
-        ts_iti = self.display_blank(self.iti_time, 1)
-        cue_dir, ts_cue, cue_data, cue_dir_name = self.display_cue(self.cue_time)
+        ts_iti = self.display_blank(self.iti_time)
+        cue_dir, ts_cue = self.display_cue(self.cue_time)
         ts_stim = self.display_stimuli(trial['locations'], trial['color_values'])
-        ts_delay = self.display_blank(self.delay_time, 6)
+        ts_delay = self.display_blank(self.delay_time)
         resp_colors, rts, click_order, ts_resp = self.get_response(trial['locations'], cue_dir)
 
         data = []
@@ -817,9 +766,6 @@ class ResolutionWR(template.BaseExperiment):
                 'RespColorName': resp_color_name,
                 'Accuracy': accuracy,
                 'RT': rts[i],
-                'TMS': cue_data,
-                'cueDir': cue_dir_name,
-                'tsTrialBegin': timestamp_trialBegin,
             })
 
         return data
