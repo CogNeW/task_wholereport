@@ -214,13 +214,6 @@ class ResolutionWR(template.BaseExperiment):
 
         super().__init__(**kwargs)
         
-                # Create a window in windowed mode
-        self.win = visual.Window(
-            size=[800, 600],  # Set the window size
-            fullscr=False,    # Ensure it's in windowed mode
-            color=[0, 0, 0],  # Optional: background color (black)
-            units="pix"       # Optional: use pixels as the unit
-        )
 
     def save_experiment_info(self, filename=None):
         """Writes the info from the dialog box to a json file.
@@ -484,7 +477,7 @@ class ResolutionWR(template.BaseExperiment):
 
         try:
             data = client_socket.recv(1024)
-            print(data)
+            # str(data) # will have the string 'Triggered 1'
             # Send a parallel port trigger
             p_port.setData(int(3))
             psychopy.core.wait(pport_wait_time)
